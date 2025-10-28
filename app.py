@@ -35,7 +35,7 @@ def load_data(file_path):
     df = pd.read_csv(file_path)
     # Clean the data - remove commas and spaces from readings
     df['Reading'] = df['Reading'].str.replace(',', '').str.strip().astype(float)
-    df['Date'] = pd.to_datetime(df['Date'], format='%d %b %Y')
+    df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y')
     df['Reading Source'] = df['Reading Source'].fillna('manual')
     df = df.sort_values(by='Date', ascending=True)
     return df
@@ -88,7 +88,7 @@ if uploaded_file is not None:
         st.plotly_chart(fig_readings, use_container_width=True)
         
         # Calculate daily usage distributed across each day in the period
-        st.subheader("Average Daily Usage by Month")
+        st.subheader("Total Usage by Month")
         
         daily_usage_data = []
         for reading_type in df['Type'].unique():
@@ -115,19 +115,79 @@ if uploaded_file is not None:
             # Add year-month column for grouping
             daily_usage_df['Year-Month'] = daily_usage_df['Date'].dt.to_period('M').astype(str)
             
-            # Calculate monthly averages
-            monthly_avg = daily_usage_df.groupby(['Year-Month', 'Type'])['Daily Usage (kWh)'].mean().reset_index()
-            monthly_avg.columns = ['Month', 'Type', 'Average Daily Usage (kWh)']
+            # Calculate monthly totals
+            monthly_total = daily_usage_df.groupby(['Year-Month', 'Type'])['Daily Usage (kWh)'].sum().reset_index()
+            monthly_total.columns = ['Month', 'Type', 'Total Usage (kWh)']
             
             # Sort by month
-            monthly_avg['Sort_Date'] = pd.to_datetime(monthly_avg['Month'])
-            monthly_avg = monthly_avg.sort_values('Sort_Date')
+            monthly_total['Sort_Date'] = pd.to_datetime(monthly_total['Month'])
+            monthly_total = monthly_total.sort_values('Sort_Date')
             
-            fig_monthly = px.bar(monthly_avg, x='Month', y='Average Daily Usage (kWh)', 
-                              color='Type', barmode='group',
-                              title='Average Daily Usage by Month',
-                              labels={'Month': 'Month', 'Average Daily Usage (kWh)': 'Average Daily Usage (kWh/day)'})
-            fig_monthly.update_layout(height=400)
+            # Calculate number of days in each month from the data
+            days_per_month = daily_usage_df.groupby('Year-Month')['Date'].nunique().reset_index()
+            days_per_month.columns = ['Month', 'Days']
+            monthly_total = monthly_total.merge(days_per_month, on='Month')
+            
+            # Create the bar chart
+            fig_monthly = go.Figure()
+            
+            # Add bars for each type
+            types = monthly_total['Type'].unique()
+            for reading_type in types:
+                type_data = monthly_total[monthly_total['Type'] == reading_type]
+                fig_monthly.add_trace(go.Bar(
+                    name=reading_type,
+                    x=type_data['Month'],
+                    y=type_data['Total Usage (kWh)'],
+                    text=type_data['Total Usage (kWh)'].round(0),
+                    textposition='auto'
+                ))
+            
+            # Calculate and add monthly cost annotations
+            # Group by month to calculate total cost per month
+            monthly_costs = []
+            for month in monthly_total['Month'].unique():
+                month_data = monthly_total[monthly_total['Month'] == month]
+                days_in_month = month_data['Days'].iloc[0]
+                
+                anytime_usage = month_data[month_data['Type'] == 'anytime']['Total Usage (kWh)'].sum()
+                cl_usage = month_data[month_data['Type'] == 'controlled load']['Total Usage (kWh)'].sum()
+                solar_usage = month_data[month_data['Type'] == 'solar']['Total Usage (kWh)'].sum()
+                
+                # Use current plan rates from above (will be defined when we're in tab2 context)
+                # For now, use the loaded plan values
+                anytime_cost = anytime_usage * (current_plan["anytime_rate"] / 100)
+                cl_cost = cl_usage * (current_plan["controlled_load_rate"] / 100)
+                solar_credit = solar_usage * (current_plan["solar_feed_in"] / 100)
+                supply_cost = (current_plan["supply_daily_charge"] + current_plan["controlled_load_supply_daily_charge"]) * days_in_month
+                
+                total_cost = anytime_cost + cl_cost + supply_cost - solar_credit
+                monthly_costs.append({'Month': month, 'Cost': total_cost})
+            
+            monthly_costs_df = pd.DataFrame(monthly_costs)
+            monthly_total = monthly_total.merge(monthly_costs_df, on='Month')
+            
+            # Add cost annotations above the bars
+            max_usage = monthly_total.groupby('Month')['Total Usage (kWh)'].sum().reset_index()
+            max_usage = max_usage.merge(monthly_costs_df, on='Month')
+            
+            for _, row in max_usage.iterrows():
+                fig_monthly.add_annotation(
+                    x=row['Month'],
+                    y=row['Total Usage (kWh)'],
+                    text=f"${row['Cost']:.0f}",
+                    showarrow=False,
+                    yshift=10,
+                    font=dict(size=10, color='red', weight='bold')
+                )
+            
+            fig_monthly.update_layout(
+                title='Total Usage by Month',
+                xaxis_title='Month',
+                yaxis_title='Total Usage (kWh)',
+                barmode='group',
+                height=400
+            )
             st.plotly_chart(fig_monthly, use_container_width=True)
     
     with tab2:
@@ -348,7 +408,7 @@ else:
     st.markdown("""
     ### Expected CSV Format:
     The CSV file should have the following columns:
-    - **Date**: Date of the reading (e.g., "17 Dec 2024")
+    - **Date**: Date of the reading (e.g., "17/12/2024")
     - **Type**: Type of reading (anytime, controlled load, solar)
     - **Reading**: Meter reading value (can include commas)
     - **Reading Source**: Source of reading (bill, manual, etc.)
@@ -356,8 +416,8 @@ else:
     Example:
     ```
     Date,Type,Reading,Reading Source
-    17 Dec 2024,anytime," 66,444 ",bill
-    17 Dec 2024,controlled load," 79,636 ",bill
-    17 Dec 2024,solar," 70,660 ",bill
+    17/12/2024,anytime," 66,444 ",bill
+    17/12/2024,controlled load," 79,636 ",bill
+    17/12/2024,solar," 70,660 ",bill
     ```
     """)

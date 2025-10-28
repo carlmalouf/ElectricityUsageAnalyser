@@ -42,13 +42,13 @@ Your CSV file should have the following structure:
 
 ```csv
 Date,Type,Reading,Reading Source
-17 Dec 2024,anytime," 66,444 ",bill
-17 Dec 2024,controlled load," 79,636 ",bill
-17 Dec 2024,solar," 70,660 ",bill
+17/12/2024,anytime," 66,444 ",bill
+17/12/2024,controlled load," 79,636 ",bill
+17/12/2024,solar," 70,660 ",bill
 ```
 
 ### Columns:
-- **Date**: Date of the reading (format: "DD Mon YYYY")
+- **Date**: Date of the reading (format: "DD/MM/YYYY")
 - **Type**: Reading type (`anytime`, `controlled load`, or `solar`)
 - **Reading**: Meter reading in kWh (commas and spaces are handled automatically)
 - **Reading Source**: Source of the reading (`bill` or leave empty for manual)
