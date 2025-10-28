@@ -87,35 +87,48 @@ if uploaded_file is not None:
         )
         st.plotly_chart(fig_readings, use_container_width=True)
         
-        # Calculate daily usage between readings
-        st.subheader("Daily Usage Between Readings")
+        # Calculate daily usage distributed across each day in the period
+        st.subheader("Average Daily Usage by Month")
         
-        usage_data = []
+        daily_usage_data = []
         for reading_type in df['Type'].unique():
             type_df = df[df['Type'] == reading_type].sort_values('Date')
             for i in range(1, len(type_df)):
-                days_diff = (type_df.iloc[i]['Date'] - type_df.iloc[i-1]['Date']).days
+                start_date = type_df.iloc[i-1]['Date']
+                end_date = type_df.iloc[i]['Date']
+                days_diff = (end_date - start_date).days
                 reading_diff = type_df.iloc[i]['Reading'] - type_df.iloc[i-1]['Reading']
                 daily_avg = reading_diff / days_diff if days_diff > 0 else 0
                 
-                usage_data.append({
-                    'Period Start': type_df.iloc[i-1]['Date'],
-                    'Period End': type_df.iloc[i]['Date'],
-                    'Type': reading_type,
-                    'Days': days_diff,
-                    'Total Usage (kWh)': reading_diff,
-                    'Daily Average (kWh/day)': daily_avg
-                })
+                # Create an entry for each day in the period (excluding the end date)
+                for day in range(days_diff):
+                    current_date = start_date + pd.Timedelta(days=day)
+                    daily_usage_data.append({
+                        'Date': current_date,
+                        'Type': reading_type,
+                        'Daily Usage (kWh)': daily_avg
+                    })
         
-        usage_df = pd.DataFrame(usage_data)
+        daily_usage_df = pd.DataFrame(daily_usage_data)
         
-        if not usage_df.empty:
-            fig_usage = px.bar(usage_df, x='Period End', y='Daily Average (kWh/day)', 
+        if not daily_usage_df.empty:
+            # Add year-month column for grouping
+            daily_usage_df['Year-Month'] = daily_usage_df['Date'].dt.to_period('M').astype(str)
+            
+            # Calculate monthly averages
+            monthly_avg = daily_usage_df.groupby(['Year-Month', 'Type'])['Daily Usage (kWh)'].mean().reset_index()
+            monthly_avg.columns = ['Month', 'Type', 'Average Daily Usage (kWh)']
+            
+            # Sort by month
+            monthly_avg['Sort_Date'] = pd.to_datetime(monthly_avg['Month'])
+            monthly_avg = monthly_avg.sort_values('Sort_Date')
+            
+            fig_monthly = px.bar(monthly_avg, x='Month', y='Average Daily Usage (kWh)', 
                               color='Type', barmode='group',
-                              title='Average Daily Usage by Period',
-                              labels={'Period End': 'Period End Date', 'Daily Average (kWh/day)': 'Daily Usage (kWh/day)'})
-            fig_usage.update_layout(height=400)
-            st.plotly_chart(fig_usage, use_container_width=True)
+                              title='Average Daily Usage by Month',
+                              labels={'Month': 'Month', 'Average Daily Usage (kWh)': 'Average Daily Usage (kWh/day)'})
+            fig_monthly.update_layout(height=400)
+            st.plotly_chart(fig_monthly, use_container_width=True)
     
     with tab2:
         st.subheader("💰 Annual Cost Estimation")
@@ -274,29 +287,29 @@ if uploaded_file is not None:
         st.subheader("📉 Usage Trends and Insights")
         
         # Calculate period-by-period trends
-        if not usage_df.empty:
+        if not daily_usage_df.empty:
             st.markdown("### Usage Statistics by Type")
             
-            for reading_type in usage_df['Type'].unique():
-                type_usage = usage_df[usage_df['Type'] == reading_type]
+            for reading_type in daily_usage_df['Type'].unique():
+                type_usage = daily_usage_df[daily_usage_df['Type'] == reading_type]
                 
                 with st.expander(f"📊 {reading_type.title()} Statistics"):
                     stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
                     
                     with stat_col1:
                         st.metric("Average Daily Usage", 
-                                 f"{type_usage['Daily Average (kWh/day)'].mean():.2f} kWh/day")
+                                 f"{type_usage['Daily Usage (kWh)'].mean():.2f} kWh/day")
                     with stat_col2:
                         st.metric("Maximum Daily Usage", 
-                                 f"{type_usage['Daily Average (kWh/day)'].max():.2f} kWh/day")
+                                 f"{type_usage['Daily Usage (kWh)'].max():.2f} kWh/day")
                     with stat_col3:
                         st.metric("Minimum Daily Usage", 
-                                 f"{type_usage['Daily Average (kWh/day)'].min():.2f} kWh/day")
+                                 f"{type_usage['Daily Usage (kWh)'].min():.2f} kWh/day")
                     with stat_col4:
-                        st.metric("Total Periods", f"{len(type_usage)}")
+                        st.metric("Total Days", f"{len(type_usage)}")
                     
                     # Line chart of usage trends
-                    fig_trend = px.line(type_usage, x='Period End', y='Daily Average (kWh/day)',
+                    fig_trend = px.line(type_usage, x='Date', y='Daily Usage (kWh)',
                                        title=f'{reading_type.title()} - Daily Usage Trend',
                                        markers=True)
                     fig_trend.update_layout(height=300)
@@ -304,26 +317,26 @@ if uploaded_file is not None:
             
             # Overall usage trend
             st.markdown("### 📈 Overall Usage Patterns")
-            pivot_usage = usage_df.pivot_table(
-                index='Period End',
+            pivot_usage = daily_usage_df.pivot_table(
+                index='Date',
                 columns='Type',
-                values='Daily Average (kWh/day)',
+                values='Daily Usage (kWh)',
                 aggfunc='mean'
             ).reset_index()
             
             fig_combined = go.Figure()
             for col in pivot_usage.columns:
-                if col != 'Period End':
+                if col != 'Date':
                     fig_combined.add_trace(go.Scatter(
-                        x=pivot_usage['Period End'],
+                        x=pivot_usage['Date'],
                         y=pivot_usage[col],
                         name=col.title(),
                         mode='lines+markers'
                     ))
             
             fig_combined.update_layout(
-                title='All Usage Types - Daily Average Comparison',
-                xaxis_title='Period End Date',
+                title='All Usage Types - Daily Usage Comparison',
+                xaxis_title='Date',
                 yaxis_title='Daily Usage (kWh/day)',
                 height=500,
                 hovermode='x unified'
