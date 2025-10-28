@@ -1,0 +1,9 @@
+{
+  "plan_name": "Current Plan",
+  "anytime_rate": 26.18,
+  "controlled_load_rate": 21.01,
+  "solar_feed_in": 5.0,
+  "supply_daily_charge": 0.9449,
+  "controlled_load_supply_daily_charge": 0.0594,
+  "notes": "Rates in c/kWh for usage, $/day for supply charges"
+}
