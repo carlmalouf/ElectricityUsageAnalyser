@@ -294,12 +294,22 @@ if uploaded_file is not None:
             
             with cost_col3:
                 st.markdown("#### 📊 Difference")
-                savings = current_calc['total_cost'] - comp_calc['total_cost']
-                st.metric("Annual Savings", f"${savings:,.2f}", 
-                         delta=f"{savings:,.2f}",
-                         delta_color="normal" if savings > 0 else "inverse")
-                st.write(f"Monthly: ${savings/12:,.2f}")
-                st.write(f"Percentage: {(savings/current_calc['total_cost']*100):.1f}%")
+                difference = comp_calc['total_cost'] - current_calc['total_cost']
+                # Negative difference means comparison is cheaper (savings)
+                is_cheaper = difference < 0
+                
+                st.metric("Annual Difference", 
+                         f"${difference:,.2f}", 
+                         delta=f"${difference:,.2f}",
+                         delta_color="inverse")  # inverse: negative (green) is good, positive (red) is bad
+                
+                if is_cheaper:
+                    st.success(f"✅ Comparison plan saves ${abs(difference):,.2f}/year")
+                else:
+                    st.error(f"❌ Comparison plan costs ${difference:,.2f} more/year")
+                
+                st.write(f"Monthly: ${difference/12:,.2f}")
+                st.write(f"Percentage: {(difference/current_calc['total_cost']*100):+.1f}%")
             
             # Visualization of cost breakdown
             st.markdown("### 📊 Cost Breakdown Comparison")
