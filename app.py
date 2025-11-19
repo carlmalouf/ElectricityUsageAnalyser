@@ -314,19 +314,38 @@ if uploaded_file is not None:
             # Visualization of cost breakdown
             st.markdown("### 📊 Cost Breakdown Comparison")
             
+            # Add time period selector
+            time_period = st.radio(
+                "Select time period:",
+                options=["Monthly", "Quarterly", "Annually"],
+                horizontal=True,
+                key="breakdown_period"
+            )
+            
+            # Calculate divisor based on selection
+            if time_period == "Monthly":
+                divisor = 12
+                period_label = "Monthly"
+            elif time_period == "Quarterly":
+                divisor = 4
+                period_label = "Quarterly"
+            else:
+                divisor = 1
+                period_label = "Annual"
+            
             breakdown_data = pd.DataFrame({
                 'Category': ['Anytime', 'Controlled Load', 'Supply Charges', 'Solar Credit'],
                 'Current Plan': [
-                    current_calc['anytime_cost'],
-                    current_calc['cl_cost'],
-                    current_calc['supply_cost'],
-                    -current_calc['solar_credit']
+                    current_calc['anytime_cost'] / divisor,
+                    current_calc['cl_cost'] / divisor,
+                    current_calc['supply_cost'] / divisor,
+                    -current_calc['solar_credit'] / divisor
                 ],
                 'Comparison Plan': [
-                    comp_calc['anytime_cost'],
-                    comp_calc['cl_cost'],
-                    comp_calc['supply_cost'],
-                    -comp_calc['solar_credit']
+                    comp_calc['anytime_cost'] / divisor,
+                    comp_calc['cl_cost'] / divisor,
+                    comp_calc['supply_cost'] / divisor,
+                    -comp_calc['solar_credit'] / divisor
                 ]
             })
             
@@ -345,9 +364,9 @@ if uploaded_file is not None:
             ))
             
             fig_breakdown.update_layout(
-                title='Annual Cost Breakdown by Category',
+                title=f'{period_label} Cost Breakdown by Category',
                 xaxis_title='Category',
-                yaxis_title='Annual Cost ($)',
+                yaxis_title=f'{period_label} Cost ($)',
                 barmode='group',
                 height=400
             )
