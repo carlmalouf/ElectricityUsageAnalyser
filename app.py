@@ -88,7 +88,15 @@ if uploaded_file is not None:
         st.plotly_chart(fig_readings, use_container_width=True)
         
         # Calculate daily usage distributed across each day in the period
-        st.subheader("Total Usage by Month")
+        st.subheader("Total Usage Over Time")
+        
+        # Add frequency selector
+        usage_freq = st.radio(
+            "**View by:**",
+            options=["Monthly", "Quarterly", "Annually"],
+            horizontal=True,
+            key="usage_frequency"
+        )
         
         daily_usage_data = []
         for reading_type in df['Type'].unique():
@@ -112,68 +120,76 @@ if uploaded_file is not None:
         daily_usage_df = pd.DataFrame(daily_usage_data)
         
         if not daily_usage_df.empty:
-            # Add year-month column for grouping
-            daily_usage_df['Year-Month'] = daily_usage_df['Date'].dt.to_period('M').astype(str)
+            # Add period column based on selection
+            if usage_freq == "Monthly":
+                daily_usage_df['Period'] = daily_usage_df['Date'].dt.to_period('M').astype(str)
+                period_label = "Month"
+            elif usage_freq == "Quarterly":
+                daily_usage_df['Period'] = daily_usage_df['Date'].dt.to_period('Q').astype(str)
+                period_label = "Quarter"
+            else:  # Annually
+                daily_usage_df['Period'] = daily_usage_df['Date'].dt.to_period('Y').astype(str)
+                period_label = "Year"
             
-            # Calculate monthly totals
-            monthly_total = daily_usage_df.groupby(['Year-Month', 'Type'])['Daily Usage (kWh)'].sum().reset_index()
-            monthly_total.columns = ['Month', 'Type', 'Total Usage (kWh)']
+            # Calculate period totals
+            period_total = daily_usage_df.groupby(['Period', 'Type'])['Daily Usage (kWh)'].sum().reset_index()
+            period_total.columns = ['Period', 'Type', 'Total Usage (kWh)']
             
-            # Sort by month
-            monthly_total['Sort_Date'] = pd.to_datetime(monthly_total['Month'])
-            monthly_total = monthly_total.sort_values('Sort_Date')
+            # Sort by period
+            period_total['Sort_Date'] = pd.to_datetime(period_total['Period'].str.split('Q').str[0] if usage_freq == "Quarterly" else period_total['Period'])
+            period_total = period_total.sort_values('Sort_Date')
             
-            # Calculate number of days in each month from the data
-            days_per_month = daily_usage_df.groupby('Year-Month')['Date'].nunique().reset_index()
-            days_per_month.columns = ['Month', 'Days']
-            monthly_total = monthly_total.merge(days_per_month, on='Month')
+            # Calculate number of days in each period from the data
+            days_per_period = daily_usage_df.groupby('Period')['Date'].nunique().reset_index()
+            days_per_period.columns = ['Period', 'Days']
+            period_total = period_total.merge(days_per_period, on='Period')
             
             # Create the bar chart
-            fig_monthly = go.Figure()
+            fig_period = go.Figure()
             
             # Add bars for each type
-            types = monthly_total['Type'].unique()
+            types = period_total['Type'].unique()
             for reading_type in types:
-                type_data = monthly_total[monthly_total['Type'] == reading_type]
-                fig_monthly.add_trace(go.Bar(
+                type_data = period_total[period_total['Type'] == reading_type]
+                fig_period.add_trace(go.Bar(
                     name=reading_type,
-                    x=type_data['Month'],
+                    x=type_data['Period'],
                     y=type_data['Total Usage (kWh)'],
                     text=type_data['Total Usage (kWh)'].round(0),
                     textposition='auto'
                 ))
             
-            # Calculate and add monthly cost annotations
-            # Group by month to calculate total cost per month
-            monthly_costs = []
-            for month in monthly_total['Month'].unique():
-                month_data = monthly_total[monthly_total['Month'] == month]
-                days_in_month = month_data['Days'].iloc[0]
+            # Calculate and add period cost annotations
+            # Group by period to calculate total cost per period
+            period_costs = []
+            for period in period_total['Period'].unique():
+                period_data = period_total[period_total['Period'] == period]
+                days_in_period = period_data['Days'].iloc[0]
                 
-                anytime_usage = month_data[month_data['Type'] == 'anytime']['Total Usage (kWh)'].sum()
-                cl_usage = month_data[month_data['Type'] == 'controlled load']['Total Usage (kWh)'].sum()
-                solar_usage = month_data[month_data['Type'] == 'solar']['Total Usage (kWh)'].sum()
+                anytime_usage = period_data[period_data['Type'] == 'anytime']['Total Usage (kWh)'].sum()
+                cl_usage = period_data[period_data['Type'] == 'controlled load']['Total Usage (kWh)'].sum()
+                solar_usage = period_data[period_data['Type'] == 'solar']['Total Usage (kWh)'].sum()
                 
                 # Use current plan rates from above (will be defined when we're in tab2 context)
                 # For now, use the loaded plan values
                 anytime_cost = anytime_usage * (current_plan["anytime_rate"] / 100)
                 cl_cost = cl_usage * (current_plan["controlled_load_rate"] / 100)
                 solar_credit = solar_usage * (current_plan["solar_feed_in"] / 100)
-                supply_cost = (current_plan["supply_daily_charge"] + current_plan["controlled_load_supply_daily_charge"]) * days_in_month
+                supply_cost = (current_plan["supply_daily_charge"] + current_plan["controlled_load_supply_daily_charge"]) * days_in_period
                 
                 total_cost = anytime_cost + cl_cost + supply_cost - solar_credit
-                monthly_costs.append({'Month': month, 'Cost': total_cost})
+                period_costs.append({'Period': period, 'Cost': total_cost})
             
-            monthly_costs_df = pd.DataFrame(monthly_costs)
-            monthly_total = monthly_total.merge(monthly_costs_df, on='Month')
+            period_costs_df = pd.DataFrame(period_costs)
+            period_total = period_total.merge(period_costs_df, on='Period')
             
             # Add cost annotations above the bars
-            max_usage = monthly_total.groupby('Month')['Total Usage (kWh)'].sum().reset_index()
-            max_usage = max_usage.merge(monthly_costs_df, on='Month')
+            max_usage = period_total.groupby('Period')['Total Usage (kWh)'].sum().reset_index()
+            max_usage = max_usage.merge(period_costs_df, on='Period')
             
             for _, row in max_usage.iterrows():
-                fig_monthly.add_annotation(
-                    x=row['Month'],
+                fig_period.add_annotation(
+                    x=row['Period'],
                     y=row['Total Usage (kWh)'],
                     text=f"${row['Cost']:.0f}",
                     showarrow=False,
@@ -181,14 +197,14 @@ if uploaded_file is not None:
                     font=dict(size=10, color='red', weight='bold')
                 )
             
-            fig_monthly.update_layout(
-                title='Total Usage by Month',
-                xaxis_title='Month',
+            fig_period.update_layout(
+                title=f'Total Usage by {period_label}',
+                xaxis_title=period_label,
                 yaxis_title='Total Usage (kWh)',
                 barmode='group',
                 height=400
             )
-            st.plotly_chart(fig_monthly, use_container_width=True)
+            st.plotly_chart(fig_period, use_container_width=True)
     
     with tab2:
         st.subheader("💰 Annual Cost Estimation")
@@ -314,38 +330,19 @@ if uploaded_file is not None:
             # Visualization of cost breakdown
             st.markdown("### 📊 Cost Breakdown Comparison")
             
-            # Add time period selector
-            time_period = st.radio(
-                "Select time period:",
-                options=["Monthly", "Quarterly", "Annually"],
-                horizontal=True,
-                key="breakdown_period"
-            )
-            
-            # Calculate divisor based on selection
-            if time_period == "Monthly":
-                divisor = 12
-                period_label = "Monthly"
-            elif time_period == "Quarterly":
-                divisor = 4
-                period_label = "Quarterly"
-            else:
-                divisor = 1
-                period_label = "Annual"
-            
             breakdown_data = pd.DataFrame({
                 'Category': ['Anytime', 'Controlled Load', 'Supply Charges', 'Solar Credit'],
                 'Current Plan': [
-                    current_calc['anytime_cost'] / divisor,
-                    current_calc['cl_cost'] / divisor,
-                    current_calc['supply_cost'] / divisor,
-                    -current_calc['solar_credit'] / divisor
+                    current_calc['anytime_cost'],
+                    current_calc['cl_cost'],
+                    current_calc['supply_cost'],
+                    -current_calc['solar_credit']
                 ],
                 'Comparison Plan': [
-                    comp_calc['anytime_cost'] / divisor,
-                    comp_calc['cl_cost'] / divisor,
-                    comp_calc['supply_cost'] / divisor,
-                    -comp_calc['solar_credit'] / divisor
+                    comp_calc['anytime_cost'],
+                    comp_calc['cl_cost'],
+                    comp_calc['supply_cost'],
+                    -comp_calc['solar_credit']
                 ]
             })
             
@@ -364,9 +361,9 @@ if uploaded_file is not None:
             ))
             
             fig_breakdown.update_layout(
-                title=f'{period_label} Cost Breakdown by Category',
+                title='Annual Cost Breakdown by Category',
                 xaxis_title='Category',
-                yaxis_title=f'{period_label} Cost ($)',
+                yaxis_title='Annual Cost ($)',
                 barmode='group',
                 height=400
             )
